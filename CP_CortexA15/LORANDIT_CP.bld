@@ -1,0 +1,232 @@
+/* load the required modules for the configuration */
+var A15     = xdc.useModule('gnu.targets.arm.A15F');
+/* A15 compiler directory path                    */
+A15.rootDir        = java.lang.System.getenv("CGTOOLS_A15");
+
+/* Read the current board */
+var CurrentPlatform = java.lang.System.getenv("BOARD");
+
+if (CurrentPlatform == null)
+{
+    /* The env variable is probably not set while running inside CCS */
+    CurrentPlatform = java.lang.System.getProperty("BOARD");
+}
+
+/*add bspLib to support SemiHosting to enable system_printf on A15*/
+/* GCC bare metal targets */
+var gccArmTargets = xdc.loadPackage('gnu.targets.arm');
+gccArmTargets.A15F.bspLib = "rdimon";
+
+var Build = xdc.useModule('xdc.bld.BuildEnvironment');
+/*
+Memory map
+
+DDR: 0x80000000 (Ist 512MB - Cached)
+
+NOTE: APP_CACHED_DATA_BLK1_MEM is used to route sections which needs to be in a
+separate section preferably at the end of 512 MB memory.
+For example:
+Frame buffer memory can be less at runtime depending on boards with lesser DDR (as in TDA 12x12 POP boards).
+If the same is routed to APP_CACHED_DATA_MEM section then the linker will
+place the frame buffer before other data section and the other data will fall into
+region outside the DDR in the board. Hence separate section is used!!
+
++-----------------------------+
+| APP_CODE_MEM                | 3MB
++-----------------------------+
+| APP_CACHED_DATA_MEM         | 20MB
++-----------------------------+
+| APP_CACHED_DATA_BLK1_MEM    | 244MB
++-----------------------------+
+| APP_CACHED_DATA_BLK2_MEM    | 128MB
++-----------------------------+
+| NOT USED                    | Remaining MB
++-----------------------------+
+
+DDR: 0xA0000000 (2nd 512MB - Non-Cached)
++-----------------------------+
+|                             |
+| APP_UNCACHED_DATA_BLK3_MEM  | 2MB
++-----------------------------+
+|     NOT USED                | Remaining MB
++-----------------------------+
+
+*/
+
+var KB=1024;
+var MB=KB*KB;
+
+var DDR3_ADDR_0;
+var DDR3_ADDR_1;
+
+var APP_CODE_ADDR;
+var APP_CODE_SIZE;
+
+var APP_CACHED_DATA_ADDR;
+var APP_CACHED_DATA_SIZE;
+
+var APP_UNCACHED_DATA_BLK3_ADDR;
+var APP_UNCACHED_DATA_BLK3_SIZE;
+
+var APP_CACHED_DATA_BLK1_ADDR;
+var APP_CACHED_DATA_BLK1_SIZE;
+
+var APP_CACHED_DATA_BLK2_ADDR;
+var APP_CACHED_DATA_BLK2_SIZE;
+
+var APP_PCIE_ADDR;
+var APP_PCIE_SIZE;
+
+
+/* First 4KB reserved for components such as SBL */
+SBL_SIZE                = 4*KB;					//4*KB
+DDR3_ADDR_0             = 0x80000000 + SBL_SIZE;//0x80000000 + SBL_SIZE
+DDR3_ADDR_1             = 0xA0000000;
+PCIE_M					= 0xA1000000;
+
+APP_CODE_SIZE                   = 3*MB - SBL_SIZE;	//3*MB - SBL_SIZE
+APP_CACHED_DATA_SIZE            = 50*MB;			//20*MB
+APP_CACHED_DATA_BLK1_SIZE       = 244*MB;			//244*MB
+APP_CACHED_DATA_BLK2_SIZE       = 128*MB;			//128*MB
+APP_UNCACHED_DATA_BLK3_SIZE     = 2*MB;				//2*MB
+APP_PCIE_SIZE					= 20*MB;			//20*MB
+
+APP_CODE_ADDR                   = DDR3_ADDR_0;
+APP_CACHED_DATA_ADDR            = APP_CODE_ADDR + APP_CODE_SIZE;
+APP_CACHED_DATA_BLK1_ADDR       = APP_CACHED_DATA_ADDR + APP_CACHED_DATA_SIZE;
+APP_CACHED_DATA_BLK2_ADDR       = APP_CACHED_DATA_BLK1_ADDR + APP_CACHED_DATA_BLK1_SIZE;
+APP_UNCACHED_DATA_BLK3_ADDR     = DDR3_ADDR_1;
+APP_PCIE_ADDR					= PCIE_M;
+
+var COMMON = {
+    name: "COMMON", space: "data", access: "RWX",
+    base: 0xA3000000, len: 0x80,
+};
+
+var VARIABLES = {
+    name: "VARIABLES", space: "data", access: "RWX",
+    base: 0xA4000000, len: 0x8000000,
+};
+
+var SUPRESSION = {
+    name: "SUPRESSION", space: "data", access: "RWX",
+    base: 0xAC000000, len: 0x800000,
+};
+
+var SR_0 = {
+    name: "SR_0", space: "data", access: "RW",
+    base: 0xB9000000, len: 0x1000000,
+    comment: "SR#0 Memory (16 MB)"
+};
+
+
+var VIP_BUF = {
+    name: "VIP_BUF", space: "data", access: "RW",
+    base: 0xB0000000, len: 0x18000,
+};
+
+Build.platformTable["ti.platforms.evmAM572X:host"] =
+{
+    externalMemoryMap:
+    [
+        ["APP_CODE_MEM", {
+            comment : "APP_CODE_MEM",
+            name    : "APP_CODE_MEM",
+            base    : APP_CODE_ADDR,
+            len     : APP_CODE_SIZE,
+            space	: "code/data",
+            access	: "RWX"
+        }],
+        ["APP_CACHED_DATA_MEM", {
+            comment : "APP_CACHED_DATA_MEM",
+            name    : "APP_CACHED_DATA_MEM",
+            base    : APP_CACHED_DATA_ADDR,
+            len     : APP_CACHED_DATA_SIZE,
+            space	: "code/data",
+            access	: "RWX"
+        }],
+        ["APP_UNCACHED_DATA_BLK3_MEM", {
+            comment : "APP_UNCACHED_DATA_BLK3_MEM",
+            name    : "APP_UNCACHED_DATA_BLK3_MEM",
+            base    : APP_UNCACHED_DATA_BLK3_ADDR,
+            len     : APP_UNCACHED_DATA_BLK3_SIZE,
+            space	: "code/data",
+            access	: "RWX"
+        }],
+        ["APP_CACHED_DATA_BLK1_MEM", {
+            comment : "APP_CACHED_DATA_BLK1_MEM",
+            name    : "APP_CACHED_DATA_BLK1_MEM",
+            base    : APP_CACHED_DATA_BLK1_ADDR,
+            len     : APP_CACHED_DATA_BLK1_SIZE,
+            space	: "code/data",
+            access	: "RWX"
+        }],
+        ["APP_CACHED_DATA_BLK2_MEM", {
+            comment : "APP_CACHED_DATA_BLK2_MEM",
+            name    : "APP_CACHED_DATA_BLK2_MEM",
+            base    : APP_CACHED_DATA_BLK2_ADDR,
+            len     : APP_CACHED_DATA_BLK2_SIZE,
+            space	: "code/data",
+            access	: "RWX"
+        }],
+        ["APP_PCIE_MEM", {
+            comment : "APP_PCIE_MEM",
+            name    : "APP_PCIE_MEM",
+            base    : APP_PCIE_ADDR,
+            len     : APP_PCIE_SIZE
+        }],  
+		 ["SUPRESSION", SUPRESSION],
+         ["VARIABLES", VARIABLES],
+   		 [ "SR_0", SR_0 ],
+   		 [ "VIP_BUF", VIP_BUF ],
+   		 [ "COMMON", COMMON ], 
+
+    ],
+    codeMemory: "APP_CODE_MEM",
+    dataMemory: "APP_CACHED_DATA_MEM",
+    stackMemory: "APP_CACHED_DATA_MEM"
+};
+
+Build.platformTable["ti.platforms.evmAM572X:dsp1"] = {
+    externalMemoryMap: [
+        [ "DSP1_PROG", {
+            name: "DSP1_PROG", space: "code/data", access: "RWX",
+            base: 0xB4000000, len: 0x1000000,
+            comment: "DSP1 Program Memory (16 MB)"
+        }],
+        [ "SR_0", SR_0 ],
+        ["VARIABLES", VARIABLES],
+        [ "COMMON", COMMON ], 
+    ],
+    codeMemory:  "DSP1_PROG",
+    dataMemory:  "DSP1_PROG",
+    stackMemory: "DSP1_PROG",
+    l1DMode: "32k",
+    l1PMode: "32k",
+    l2Mode: "128k"
+}; 
+
+Build.platformTable["ti.platforms.evmAM572X:dsp2"] = {
+    externalMemoryMap: [
+        [ "DSP2_PROG", {
+            name: "DSP2_PROG", space: "code/data", access: "RWX",
+            base: 0xB5000000, len: 0x1000000,
+            comment: "DSP2 Program Memory (16 MB)"
+        }],
+        [ "SR_0", SR_0 ],
+        ["VARIABLES", VARIABLES],
+        [ "COMMON", COMMON ], 
+    ],
+    codeMemory:  "DSP2_PROG",
+    dataMemory:  "DSP2_PROG",
+    stackMemory: "DSP2_PROG",
+    l1DMode: "32k",
+    l1PMode: "32k",
+    l2Mode: "128k"
+};
+/*
+ *  ======== ti.targets.elf.C66 ========
+ */
+var C66 = xdc.useModule('ti.targets.elf.C66');
+C66.ccOpts.suffix += " -mi10 -mo -pdr -pden -pds=238 -pds=880 -pds1110 ";
+Build.targets.$add(C66);
